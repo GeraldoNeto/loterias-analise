@@ -237,62 +237,129 @@ function formatarPremio(valor) {
   return `R$ ${valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
 }
 
-function useResultados() {
-  const [resultados, setResultados] = useState(ULTIMOS_RESULTADOS);
-  const [loading,    setLoading]    = useState(true);
-  const [erro,       setErro]       = useState(null);
-  const [aoVivo,     setAoVivo]     = useState(false);
+async function fetchConcurso(tipo, numero) {
+  try {
+    const r = await fetch(`/api-caixa/${tipo}/${numero}`);
+    return r.ok ? r.json() : null;
+  } catch { return null; }
+}
+
+async function atualizarFreq(freqBase, tipo, baseConcurso, ultimoConcurso, onProgresso) {
+  const novos = ultimoConcurso - baseConcurso;
+  if (novos <= 0) return { freq: freqBase, novos: 0 };
+
+  const MAX = 60; // busca no máximo 60 concursos novos por vez
+  const inicio = Math.max(baseConcurso + 1, ultimoConcurso - MAX + 1);
+  const ids = [];
+  for (let c = inicio; c <= ultimoConcurso; c++) ids.push(c);
+
+  const freq = freqBase.map(f => ({ ...f }));
+  const LOTE = 8;
+
+  for (let i = 0; i < ids.length; i += LOTE) {
+    const lote = ids.slice(i, i + LOTE);
+    const dados = await Promise.all(lote.map(c => fetchConcurso(tipo, c)));
+    dados.forEach(d => {
+      if (!d?.listaDezenas) return;
+      d.listaDezenas.map(Number).forEach(n => {
+        const item = freq.find(f => f.n === n);
+        if (item) item.freq++;
+      });
+    });
+    onProgresso(Math.round(((i + lote.length) / ids.length) * 100));
+  }
+
+  return { freq, novos: ids.length };
+}
+
+function useDadosAoVivo() {
+  const [resultados,  setResultados]  = useState(ULTIMOS_RESULTADOS);
+  const [megaFreq,    setMegaFreq]    = useState(MEGA_FREQ);
+  const [lotoFreq,    setLotoFreq]    = useState(LOTO_FREQ);
+  const [status, setStatus] = useState({
+    loading: true, aoVivo: false, erro: null,
+    freqLoading: false, freqProgresso: 0,
+    novosConc: { mega: 0, loto: 0 },
+  });
 
   useEffect(() => {
     async function buscar() {
+      // ── Fase 1: último resultado ──────────────────────────
+      let mega, loto;
       try {
-        const [rMega, rLoto] = await Promise.all([
+        const [rM, rL] = await Promise.all([
           fetch("/api-caixa/megasena"),
           fetch("/api-caixa/lotofacil"),
         ]);
-        if (!rMega.ok || !rLoto.ok) throw new Error("resposta inválida");
-        const [mega, loto] = await Promise.all([rMega.json(), rLoto.json()]);
-
-        const ganhadoresMega = mega.listaRateioPremio?.[0]?.numeroDeGanhadores ?? 0;
-        const premioMega     = mega.listaRateioPremio?.[0]?.valorPremio ?? 0;
-        const ganhadoresLoto = loto.listaRateioPremio?.[0]?.numeroDeGanhadores ?? 0;
-        const premioLoto     = loto.listaRateioPremio?.[0]?.valorPremio ?? 0;
-
-        setResultados({
-          mega: {
-            concurso:        mega.numero,
-            data:            mega.dataApuracao,
-            dezenas:         mega.listaDezenas.map(Number).sort((a, b) => a - b),
-            ganhadores6:     ganhadoresMega,
-            premio:          mega.acumulado ? "Acumulou" : formatarPremio(premioMega),
-            acumulado:       mega.acumulado ?? false,
-            proximoConcurso: mega.numeroConcursoProximo,
-            proximaData:     mega.dataProximoConcurso,
-            proximoPremio:   formatarPremio((mega.valorEstimadoProximoConcurso || 0) + (mega.valorAcumuladoProximoConcurso || 0)),
-          },
-          loto: {
-            concurso:        loto.numero,
-            data:            loto.dataApuracao,
-            dezenas:         loto.listaDezenas.map(Number).sort((a, b) => a - b),
-            ganhadores15:    ganhadoresLoto,
-            premio:          formatarPremio(premioLoto),
-            acumulado:       loto.acumulado ?? false,
-            proximoConcurso: loto.numeroConcursoProximo,
-            proximaData:     loto.dataProximoConcurso,
-            proximoPremio:   formatarPremio(loto.valorEstimadoProximoConcurso || 0),
-          },
-        });
-        setAoVivo(true);
+        if (!rM.ok || !rL.ok) throw new Error("API indisponível");
+        [mega, loto] = await Promise.all([rM.json(), rL.json()]);
       } catch (e) {
-        setErro("Não foi possível buscar os dados da Caixa. Exibindo o último resultado salvo.");
-      } finally {
-        setLoading(false);
+        setStatus(s => ({ ...s, loading: false, erro: "API da Caixa indisponível. Exibindo dados locais." }));
+        return;
       }
+
+      const ganhadoresMega = mega.listaRateioPremio?.[0]?.numeroDeGanhadores ?? 0;
+      const premioMega     = mega.listaRateioPremio?.[0]?.valorPremio ?? 0;
+      const ganhadoresLoto = loto.listaRateioPremio?.[0]?.numeroDeGanhadores ?? 0;
+      const premioLoto     = loto.listaRateioPremio?.[0]?.valorPremio ?? 0;
+
+      setResultados({
+        mega: {
+          concurso:        mega.numero,
+          data:            mega.dataApuracao,
+          dezenas:         mega.listaDezenas.map(Number).sort((a, b) => a - b),
+          ganhadores6:     ganhadoresMega,
+          premio:          mega.acumulado ? "Acumulou" : formatarPremio(premioMega),
+          acumulado:       mega.acumulado ?? false,
+          proximoConcurso: mega.numeroConcursoProximo,
+          proximaData:     mega.dataProximoConcurso,
+          proximoPremio:   formatarPremio((mega.valorEstimadoProximoConcurso || 0) + (mega.valorAcumuladoProximoConcurso || 0)),
+        },
+        loto: {
+          concurso:        loto.numero,
+          data:            loto.dataApuracao,
+          dezenas:         loto.listaDezenas.map(Number).sort((a, b) => a - b),
+          ganhadores15:    ganhadoresLoto,
+          premio:          formatarPremio(premioLoto),
+          acumulado:       loto.acumulado ?? false,
+          proximoConcurso: loto.numeroConcursoProximo,
+          proximaData:     loto.dataProximoConcurso,
+          proximoPremio:   formatarPremio(loto.valorEstimadoProximoConcurso || 0),
+        },
+      });
+
+      const novosMega = mega.numero - CONCURSO_BASE_MEGA;
+      const novosLoto = loto.numero - CONCURSO_BASE_LOTO;
+      setStatus(s => ({
+        ...s, loading: false, aoVivo: true,
+        freqLoading: novosMega > 0 || novosLoto > 0,
+        novosConc: { mega: novosMega, loto: novosLoto },
+      }));
+
+      // ── Fase 2: frequências atualizadas ──────────────────
+      if (novosMega > 0) {
+        const { freq } = await atualizarFreq(
+          MEGA_FREQ, "megasena", CONCURSO_BASE_MEGA, mega.numero,
+          p => setStatus(s => ({ ...s, freqProgresso: Math.round(p / 2) }))
+        );
+        setMegaFreq(freq);
+      }
+
+      if (novosLoto > 0) {
+        const { freq } = await atualizarFreq(
+          LOTO_FREQ, "lotofacil", CONCURSO_BASE_LOTO, loto.numero,
+          p => setStatus(s => ({ ...s, freqProgresso: 50 + Math.round(p / 2) }))
+        );
+        setLotoFreq(freq);
+      }
+
+      setStatus(s => ({ ...s, freqLoading: false, freqProgresso: 100 }));
     }
+
     buscar();
   }, []);
 
-  return { resultados, loading, erro, aoVivo };
+  return { resultados, megaFreq, lotoFreq, status };
 }
 
 function comb(n, k) {
@@ -985,12 +1052,13 @@ function AbaGerador({ dados, isLoto, accent, accent2 }) {
 export default function LoteriasAnalise() {
   const [jogo, setJogo] = useState("mega");
   const [aba, setAba]   = useState("frequencia");
-  const { resultados, loading, erro, aoVivo } = useResultados();
+  const { resultados, megaFreq, lotoFreq, status } = useDadosAoVivo();
+  const { loading, aoVivo, erro, freqLoading, freqProgresso, novosConc } = status;
 
   const isMega = jogo === "mega";
   const isLoto = jogo === "loto";
 
-  const dados     = isMega ? MEGA_FREQ    : LOTO_FREQ;
+  const dados     = isMega ? megaFreq    : lotoFreq;
   const jogos     = isMega ? MEGA_JOGOS   : LOTO_JOGOS;
   const padroes   = isMega ? MEGA_PADROES : LOTO_PADROES;
   const getCorFq  = isMega ? getCorFreqMega : getCorFreqLoto;
@@ -1208,15 +1276,41 @@ export default function LoteriasAnalise() {
                       border: `1px solid ${aoVivo ? ACCENT+"30" : "rgba(255,193,7,0.2)"}`,
                       borderRadius:10, padding:"10px 14px",
                     }}>
-                      <div style={{ fontSize:11, color: aoVivo ? ACCENT : "#fbbf24", fontWeight:700, marginBottom:4 }}>
-                        {aoVivo ? "✅ Resultado em tempo real" : "ℹ️ Dados locais"}
-                      </div>
-                      <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.55 }}>
-                        {aoVivo
-                          ? <>Concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{res.concurso}</strong> carregado diretamente da API oficial da Caixa Econômica Federal. As frequências históricas são atualizadas manualmente e cobrem até o concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso}</strong>.</>
-                          : <>A API da Caixa não respondeu. Exibindo concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso}</strong> salvo localmente. Verifique sua conexão e recarregue a página.</>
-                        }
-                      </div>
+                      {(() => {
+                        const novos = isMega ? novosConc.mega : novosConc.loto;
+                        if (!aoVivo) return (
+                          <>
+                            <div style={{ fontSize:11, color:"#fbbf24", fontWeight:700, marginBottom:4 }}>ℹ️ Dados locais</div>
+                            <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.55 }}>
+                              A API da Caixa não respondeu. Exibindo concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso}</strong> salvo localmente. Verifique sua conexão e recarregue a página.
+                            </div>
+                          </>
+                        );
+                        if (freqLoading) return (
+                          <>
+                            <div style={{ fontSize:11, color:"#f59e0b", fontWeight:700, marginBottom:6 }}>
+                              ⏳ Atualizando frequências — {novos} concurso{novos>1?"s":""} novo{novos>1?"s":""}…
+                            </div>
+                            <div style={{ height:6, background:"rgba(255,255,255,0.08)", borderRadius:3, overflow:"hidden" }}>
+                              <div style={{ height:"100%", width:`${freqProgresso}%`, background:ACCENT, borderRadius:3, transition:"width 0.4s" }} />
+                            </div>
+                            <div style={{ fontSize:10, color:"#64748b", marginTop:4 }}>{freqProgresso}% concluído</div>
+                          </>
+                        );
+                        return (
+                          <>
+                            <div style={{ fontSize:11, color:ACCENT, fontWeight:700, marginBottom:4 }}>
+                              {novos > 0 ? `✅ Frequências atualizadas (+${novos} concurso${novos>1?"s":""})` : "✅ Frequências já atualizadas"}
+                            </div>
+                            <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.55 }}>
+                              {novos > 0
+                                ? <>Os <strong style={{color:"#e2e8f0"}}>{novos}</strong> concurso{novos>1?"s":""} novo{novos>1?"s":""} (do <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso+1}</strong> ao <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{res.concurso}</strong>) foram buscados e incorporados às frequências históricas automaticamente.</>
+                                : <>As frequências históricas já estão em dia com o concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{res.concurso}</strong>.</>
+                              }
+                            </div>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 </div>
