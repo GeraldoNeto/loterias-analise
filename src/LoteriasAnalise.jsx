@@ -730,13 +730,13 @@ export default function LoteriasAnalise() {
             fontWeight:700, marginBottom:12, textTransform:"uppercase",
           }}>Análise Estatística • Dados Históricos Oficiais CEF</div>
 
-          <h1 style={{
-            fontSize:"clamp(24px,5vw,42px)", fontWeight:700, margin:"0 0 8px",
-            background:`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT2} 100%)`,
-            WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
-            display:"inline-block",
-          }}>
-            {isMega ? "🎰 Mega-Sena Analytics" : "🍀 Lotofácil Analytics"}
+          <h1 style={{ fontSize:"clamp(24px,5vw,42px)", fontWeight:700, margin:"0 0 8px", color:ACCENT }}>
+            <span style={{
+              background:`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT2} 100%)`,
+              WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+            }}>
+              {isMega ? "🎰 Mega-Sena Analytics" : "🍀 Lotofácil Analytics"}
+            </span>
           </h1>
 
           <p style={{ color:"#94a3b8", fontSize:13, maxWidth:580, margin:"0 auto 8px", lineHeight:1.6 }}>
