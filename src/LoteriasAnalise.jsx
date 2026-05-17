@@ -731,7 +731,7 @@ export default function LoteriasAnalise() {
           }}>Análise Estatística • Dados Históricos Oficiais CEF</div>
 
           <h1 style={{ fontSize:"clamp(24px,5vw,42px)", fontWeight:700, margin:"0 0 8px", color:ACCENT }}>
-            {isMega ? "🎰 Mega-Sena Analytics" : "🍀 Lotofácil Analytics"}
+            {isMega ? "🍀 Mega-Sena Analytics" : "🎰 Lotofácil Analytics"}
           </h1>
 
           <p style={{ color:"#94a3b8", fontSize:13, maxWidth:580, margin:"0 auto 8px", lineHeight:1.6 }}>
@@ -754,8 +754,8 @@ export default function LoteriasAnalise() {
           overflow:"hidden",
         }}>
           {[
-            { id:"mega", emoji:"🎰", label:"Mega-Sena", sub:"6 de 60 • R$ 5,00", acc:"#009c3b" },
-            { id:"loto", emoji:"🍀", label:"Lotofácil", sub:"15 de 25 • R$ 3,50", acc:"#9333ea" },
+            { id:"mega", emoji:"🍀", label:"Mega-Sena", sub:"6 de 60 • R$ 5,00", acc:"#009c3b" },
+            { id:"loto", emoji:"🎰", label:"Lotofácil", sub:"15 de 25 • R$ 3,50", acc:"#9333ea" },
           ].map(({ id, emoji, label, sub, acc }) => {
             const active = jogo === id;
             return (
