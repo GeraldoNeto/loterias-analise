@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
 // ══════════════════════════════════════════════════════════
 //  ÚLTIMOS RESULTADOS REAIS (atualizar após cada sorteio)
@@ -229,6 +229,70 @@ function getCorFreqLoto(freq) {
   if (ratio > 0.45) return "#f59e0b";
   if (ratio > 0.22) return "#6b7280";
   return "#3b82f6";
+}
+
+function formatarPremio(valor) {
+  if (!valor) return "A confirmar";
+  if (valor >= 1_000_000) return `R$ ${(valor / 1_000_000).toFixed(0)} milhões`;
+  return `R$ ${valor.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+}
+
+function useResultados() {
+  const [resultados, setResultados] = useState(ULTIMOS_RESULTADOS);
+  const [loading,    setLoading]    = useState(true);
+  const [erro,       setErro]       = useState(null);
+  const [aoVivo,     setAoVivo]     = useState(false);
+
+  useEffect(() => {
+    async function buscar() {
+      try {
+        const [rMega, rLoto] = await Promise.all([
+          fetch("/api-caixa/megasena"),
+          fetch("/api-caixa/lotofacil"),
+        ]);
+        if (!rMega.ok || !rLoto.ok) throw new Error("resposta inválida");
+        const [mega, loto] = await Promise.all([rMega.json(), rLoto.json()]);
+
+        const ganhadoresMega = mega.listaRateioPremio?.[0]?.numeroDeGanhadores ?? 0;
+        const premioMega     = mega.listaRateioPremio?.[0]?.valorPremio ?? 0;
+        const ganhadoresLoto = loto.listaRateioPremio?.[0]?.numeroDeGanhadores ?? 0;
+        const premioLoto     = loto.listaRateioPremio?.[0]?.valorPremio ?? 0;
+
+        setResultados({
+          mega: {
+            concurso:        mega.numero,
+            data:            mega.dataApuracao,
+            dezenas:         mega.listaDezenas.map(Number).sort((a, b) => a - b),
+            ganhadores6:     ganhadoresMega,
+            premio:          mega.acumulado ? "Acumulou" : formatarPremio(premioMega),
+            acumulado:       mega.acumulado ?? false,
+            proximoConcurso: mega.numeroConcursoProximo,
+            proximaData:     mega.dataProximoConcurso,
+            proximoPremio:   formatarPremio((mega.valorEstimadoProximoConcurso || 0) + (mega.valorAcumuladoProximoConcurso || 0)),
+          },
+          loto: {
+            concurso:        loto.numero,
+            data:            loto.dataApuracao,
+            dezenas:         loto.listaDezenas.map(Number).sort((a, b) => a - b),
+            ganhadores15:    ganhadoresLoto,
+            premio:          formatarPremio(premioLoto),
+            acumulado:       loto.acumulado ?? false,
+            proximoConcurso: loto.numeroConcursoProximo,
+            proximaData:     loto.dataProximoConcurso,
+            proximoPremio:   formatarPremio(loto.valorEstimadoProximoConcurso || 0),
+          },
+        });
+        setAoVivo(true);
+      } catch (e) {
+        setErro("Não foi possível buscar os dados da Caixa. Exibindo o último resultado salvo.");
+      } finally {
+        setLoading(false);
+      }
+    }
+    buscar();
+  }, []);
+
+  return { resultados, loading, erro, aoVivo };
 }
 
 function comb(n, k) {
@@ -919,8 +983,9 @@ function AbaGerador({ dados, isLoto, accent, accent2 }) {
 //  COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════
 export default function LoteriasAnalise() {
-  const [jogo, setJogo] = useState("mega");   // "mega" | "loto"
-  const [aba, setAba] = useState("frequencia");
+  const [jogo, setJogo] = useState("mega");
+  const [aba, setAba]   = useState("frequencia");
+  const { resultados, loading, erro, aoVivo } = useResultados();
 
   const isMega = jogo === "mega";
   const isLoto = jogo === "loto";
@@ -1014,8 +1079,12 @@ export default function LoteriasAnalise() {
 
         {/* ── ÚLTIMO RESULTADO + STATUS DE ATUALIZAÇÃO ── */}
         {(() => {
-          const res = isMega ? ULTIMOS_RESULTADOS.mega : ULTIMOS_RESULTADOS.loto;
+          const res = isMega ? resultados.mega : resultados.loto;
           const baseConcurso = isMega ? CONCURSO_BASE_MEGA : CONCURSO_BASE_LOTO;
+          const badgeCor  = loading ? "#f59e0b" : aoVivo ? "#22c55e" : "#f97316";
+          const badgeBg   = loading ? "rgba(245,158,11,0.12)" : aoVivo ? "rgba(34,197,94,0.12)" : "rgba(249,115,22,0.12)";
+          const badgeBord = loading ? "rgba(245,158,11,0.25)" : aoVivo ? "rgba(34,197,94,0.25)"  : "rgba(249,115,22,0.25)";
+          const badgeText = loading ? "Buscando resultado…"  : aoVivo ? "Ao vivo · Caixa"        : "Último salvo";
           return (
             <div style={{
               marginBottom:22, borderRadius:14,
@@ -1033,32 +1102,29 @@ export default function LoteriasAnalise() {
                   <span style={{ fontSize:18 }}>📡</span>
                   <div>
                     <div style={{ fontSize:13, fontWeight:700, color:ACCENT }}>
-                      Último Resultado Analisado
+                      Último Resultado
                     </div>
                     <div style={{ fontSize:11, color:"#64748b", marginTop:1 }}>
-                      Dados de frequência calculados até este concurso
+                      {aoVivo ? "Buscado agora da API oficial da Caixa" : "Dados de frequência calculados até este concurso"}
                     </div>
                   </div>
                 </div>
                 <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-                  {/* Badge de status */}
                   <div style={{
                     display:"flex", alignItems:"center", gap:5,
-                    background:"rgba(34,197,94,0.12)", border:"1px solid rgba(34,197,94,0.25)",
+                    background:badgeBg, border:`1px solid ${badgeBord}`,
                     borderRadius:20, padding:"4px 12px",
                   }}>
-                    <div style={{ width:7, height:7, borderRadius:"50%", background:"#22c55e",
-                      boxShadow:"0 0 6px #22c55e" }} />
-                    <span style={{ fontSize:11, color:"#22c55e", fontWeight:600 }}>
-                      Análise atualizada
-                    </span>
+                    <div style={{ width:7, height:7, borderRadius:"50%", background:badgeCor,
+                      boxShadow:`0 0 6px ${badgeCor}`, animation: loading ? "pulse 1s infinite" : "none" }} />
+                    <span style={{ fontSize:11, color:badgeCor, fontWeight:600 }}>{badgeText}</span>
                   </div>
-                  <div style={{
-                    background:"rgba(255,255,255,0.06)", borderRadius:20, padding:"4px 12px",
-                    fontSize:11, color:"#94a3b8", fontFamily:"monospace",
-                  }}>
-                    🗓️ {DATA_ANALISE}
-                  </div>
+                  {erro && (
+                    <div style={{
+                      background:"rgba(249,115,22,0.08)", border:"1px solid rgba(249,115,22,0.2)",
+                      borderRadius:20, padding:"4px 12px", fontSize:11, color:"#f97316",
+                    }}>⚠️ {erro}</div>
+                  )}
                 </div>
               </div>
 
@@ -1138,14 +1204,18 @@ export default function LoteriasAnalise() {
                     </div>
 
                     <div style={{
-                      background:"rgba(255,193,7,0.08)", border:"1px solid rgba(255,193,7,0.2)",
+                      background: aoVivo ? `${ACCENT}0d` : "rgba(255,193,7,0.08)",
+                      border: `1px solid ${aoVivo ? ACCENT+"30" : "rgba(255,193,7,0.2)"}`,
                       borderRadius:10, padding:"10px 14px",
                     }}>
-                      <div style={{ fontSize:11, color:"#fbbf24", fontWeight:700, marginBottom:4 }}>
-                        ℹ️ Como verificar atualização
+                      <div style={{ fontSize:11, color: aoVivo ? ACCENT : "#fbbf24", fontWeight:700, marginBottom:4 }}>
+                        {aoVivo ? "✅ Resultado em tempo real" : "ℹ️ Dados locais"}
                       </div>
                       <div style={{ fontSize:11, color:"#94a3b8", lineHeight:1.55 }}>
-                        Compare o concurso base da análise <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso}</strong> com o último sorteio oficial no site da Caixa. Se houver concursos mais novos, os dados de frequência podem estar levemente desatualizados.
+                        {aoVivo
+                          ? <>Concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{res.concurso}</strong> carregado diretamente da API oficial da Caixa Econômica Federal. As frequências históricas são atualizadas manualmente e cobrem até o concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso}</strong>.</>
+                          : <>A API da Caixa não respondeu. Exibindo concurso <strong style={{color:"#e2e8f0",fontFamily:"monospace"}}>#{baseConcurso}</strong> salvo localmente. Verifique sua conexão e recarregue a página.</>
+                        }
                       </div>
                     </div>
                   </div>
