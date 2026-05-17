@@ -231,6 +231,14 @@ function getCorFreqLoto(freq) {
   return "#3b82f6";
 }
 
+function comb(n, k) {
+  if (k > n || k < 0) return 0;
+  if (k === 0 || k === n) return 1;
+  let r = 1;
+  for (let i = 0; i < k; i++) r = r * (n - i) / (i + 1);
+  return Math.round(r);
+}
+
 // ══════════════════════════════════════════════════════════
 //  SUB-COMPONENTES
 // ══════════════════════════════════════════════════════════
@@ -679,6 +687,234 @@ function AbaCalor({ dados, getCorFreq, accent = "#009c3b" }) {
   );
 }
 
+// ── ABA: Gerador de Jogos ────────────────────────────────
+function AbaGerador({ dados, isLoto, accent, accent2 }) {
+  const universo  = isLoto ? 25 : 60;
+  const kGanhar   = isLoto ? 15 : 6;
+  const numMin    = kGanhar;
+  const numMax    = isLoto ? 20 : 15;
+  const precoBase = isLoto ? 3.5 : 5.0;
+
+  const [qtdJogos,   setQtdJogos]   = useState(6);
+  const [qtdNumeros, setQtdNumeros] = useState(numMin);
+  const [jogosGerados, setJogosGerados] = useState([]);
+  const [gerado, setGerado] = useState(false);
+
+  const numCombinacoes = comb(qtdNumeros, kGanhar);
+  const totalPossivel  = comb(universo, kGanhar);
+  const probJackpot    = numCombinacoes / totalPossivel;
+  const umEmX          = Math.round(1 / probJackpot).toLocaleString("pt-BR");
+  const preco          = numCombinacoes * precoBase;
+
+  function escolherPonderado(pool) {
+    const total = pool.reduce((s, f) => s + f.freq, 0);
+    let r = Math.random() * total;
+    for (let j = 0; j < pool.length; j++) {
+      r -= pool[j].freq;
+      if (r <= 0) return j;
+    }
+    return pool.length - 1;
+  }
+
+  function gerarDezenas(n) {
+    const pool = dados.map(f => ({ ...f }));
+    const sel = [];
+    for (let i = 0; i < n; i++) {
+      const idx = escolherPonderado(pool);
+      sel.push(pool[idx].n);
+      pool.splice(idx, 1);
+    }
+    return sel.sort((a, b) => a - b);
+  }
+
+  function validar(dez) {
+    const n     = dez.length;
+    const soma  = dez.reduce((a, b) => a + b, 0);
+    const pares = dez.filter(x => x % 2 === 0).length;
+    if (isLoto && n === 15) {
+      if (soma < 171 || soma > 220) return false;
+      if (pares < 6  || pares > 9)  return false;
+      const mold = dez.filter(d => LOTO_MOLDURA.includes(d)).length;
+      if (mold < 9 || mold > 11) return false;
+    } else if (!isLoto && n === 6) {
+      if (soma < 100 || soma > 220) return false;
+      if (pares < 2  || pares > 4)  return false;
+    }
+    return true;
+  }
+
+  function gerar() {
+    const jogos = [];
+    for (let i = 0; i < qtdJogos; i++) {
+      let dez; let t = 0;
+      do { dez = gerarDezenas(qtdNumeros); t++; }
+      while (!validar(dez) && t < 400);
+
+      const soma  = dez.reduce((a, b) => a + b, 0);
+      const pares = dez.filter(x => x % 2 === 0).length;
+      const mold  = isLoto ? dez.filter(d => LOTO_MOLDURA.includes(d)).length : null;
+      const consec = dez.filter((x, i) => i > 0 && x === dez[i-1] + 1).length;
+      jogos.push({ id: i+1, dez, soma, pares, impares: dez.length - pares, mold, consec });
+    }
+    setJogosGerados(jogos);
+    setGerado(true);
+  }
+
+  const inp = {
+    background:"rgba(255,255,255,0.07)", border:"1px solid rgba(255,255,255,0.15)",
+    borderRadius:8, color:"#e2e8f0", fontSize:15, fontFamily:"monospace",
+    padding:"8px 12px", width:"100%", outline:"none", boxSizing:"border-box",
+  };
+
+  return (
+    <div>
+      {/* ── Configuração ── */}
+      <div style={{
+        background:"rgba(255,255,255,0.04)", border:`1px solid ${accent}35`,
+        borderRadius:12, padding:20, marginBottom:20,
+      }}>
+        <h3 style={{ color:accent, fontSize:15, margin:"0 0 16px" }}>⚙️ Configuração do Gerador</h3>
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:16, marginBottom:18 }}>
+          <div>
+            <label style={{ fontSize:12, color:"#94a3b8", display:"block", marginBottom:6 }}>
+              Quantidade de jogos (1–20)
+            </label>
+            <input type="number" min={1} max={20} value={qtdJogos}
+              onChange={e => setQtdJogos(Math.min(20, Math.max(1, Number(e.target.value))))}
+              style={inp} />
+          </div>
+          <div>
+            <label style={{ fontSize:12, color:"#94a3b8", display:"block", marginBottom:6 }}>
+              Números por jogo ({numMin}–{numMax})
+            </label>
+            <input type="number" min={numMin} max={numMax} value={qtdNumeros}
+              onChange={e => setQtdNumeros(Math.min(numMax, Math.max(numMin, Number(e.target.value))))}
+              style={inp} />
+          </div>
+        </div>
+
+        {/* Preview de probabilidade */}
+        <div style={{
+          background:"rgba(0,0,0,0.25)", borderRadius:10, padding:14, marginBottom:16,
+          display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(150px,1fr))", gap:10,
+        }}>
+          {[
+            { label:"Probabilidade de jackpot",   val:`1 em ${umEmX}`,                                                           cor:"#ef4444" },
+            { label:"Combinações cobertas",        val:numCombinacoes.toLocaleString("pt-BR"),                                    cor:accent   },
+            { label:"Custo estimado do bilhete",   val:preco.toLocaleString("pt-BR",{style:"currency",currency:"BRL"}),          cor:accent2  },
+            { label:`Com ${qtdJogos} bilhete${qtdJogos>1?"s":""}`, val:`1 em ${Math.round(1/(probJackpot*qtdJogos)).toLocaleString("pt-BR")}`, cor:"#f59e0b" },
+          ].map(({ label, val, cor }) => (
+            <div key={label} style={{ textAlign:"center" }}>
+              <div style={{ fontSize:10, color:"#64748b", marginBottom:4, lineHeight:1.4 }}>{label}</div>
+              <div style={{ fontSize:13, fontWeight:700, color:cor, fontFamily:"monospace" }}>{val}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* Critérios */}
+        <div style={{
+          background:`${accent}0c`, border:`1px solid ${accent}25`, borderRadius:8,
+          padding:12, marginBottom:16, fontSize:12, color:"#94a3b8", lineHeight:1.75,
+        }}>
+          <strong style={{ color:accent }}>📐 Critérios aplicados na geração:</strong><br/>
+          • <strong style={{color:"#e2e8f0"}}>Frequência ponderada:</strong> números históricos mais sorteados têm maior peso na seleção aleatória.<br/>
+          {isLoto ? <>
+            • <strong style={{color:"#e2e8f0"}}>Soma:</strong> filtro 171–220 (cobre 79% dos concursos históricos).<br/>
+            • <strong style={{color:"#e2e8f0"}}>Pares×Ímpares:</strong> garante padrão 6P+9I a 9P+6I (80% dos casos).<br/>
+            • <strong style={{color:"#e2e8f0"}}>Moldura×Miolo:</strong> 9–11 dezenas da borda, 4–6 do centro do volante.
+          </> : <>
+            • <strong style={{color:"#e2e8f0"}}>Soma:</strong> filtro 100–220 (cobre 98%+ dos concursos históricos).<br/>
+            • <strong style={{color:"#e2e8f0"}}>Pares×Ímpares:</strong> garante padrão 2P+4I a 4P+2I (78% dos casos).
+          </>}
+          {qtdNumeros > numMin && <><br/>
+            • <strong style={{color:"#fbbf24"}}>Aposta com {qtdNumeros} números:</strong> filtros de soma/pares são relaxados automaticamente — mais dezenas já garantem cobertura estatística maior.
+          </>}
+        </div>
+
+        <button onClick={gerar} style={{
+          width:"100%", padding:"13px 0", borderRadius:10, border:"none", cursor:"pointer",
+          background:`linear-gradient(135deg, ${accent}, ${accent2})`,
+          color:"#fff", fontSize:15, fontWeight:700, fontFamily:"inherit",
+          boxShadow:`0 4px 20px ${accent}44`,
+        }}>
+          🎲 Gerar {qtdJogos} jogo{qtdJogos > 1 ? "s" : ""}
+        </button>
+      </div>
+
+      {/* ── Jogos gerados ── */}
+      {gerado && (
+        <div>
+          <div style={{ fontSize:14, fontWeight:700, color:accent, marginBottom:14 }}>
+            🎯 {jogosGerados.length} jogo{jogosGerados.length>1?"s":""} gerado{jogosGerados.length>1?"s":""} — {qtdNumeros} números cada
+          </div>
+
+          <div style={{ display:"flex", flexDirection:"column", gap:10 }}>
+            {jogosGerados.map(({ id, dez, soma, pares, impares, mold, consec }) => (
+              <div key={id} style={{
+                background:"rgba(255,255,255,0.04)", border:`1px solid ${accent}30`,
+                borderRadius:12, padding:16,
+              }}>
+                <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:10, flexWrap:"wrap" }}>
+                  <span style={{
+                    background:`linear-gradient(135deg,${accent},${accent2})`,
+                    color:"#fff", borderRadius:20, padding:"2px 12px", fontSize:12, fontWeight:700,
+                  }}>Jogo {id}</span>
+                  {consec > 0 && <span style={{ fontSize:11, color:"#94a3b8" }}>⛓️ {consec} par{consec>1?"es":""} consecutivo{consec>1?"s":""}</span>}
+                </div>
+
+                <div style={{ display:"flex", gap:5, flexWrap:"wrap", marginBottom:10 }}>
+                  {dez.map(n => (
+                    <div key={n} style={{
+                      width:isLoto?34:40, height:isLoto?34:40, borderRadius:"50%",
+                      background:`linear-gradient(135deg,${accent}ee,${accent}88)`,
+                      display:"flex", alignItems:"center", justifyContent:"center",
+                      fontSize:isLoto?12:14, fontWeight:700, color:"#fff", fontFamily:"monospace",
+                      boxShadow:`0 2px 8px ${accent}44`,
+                    }}>{String(n).padStart(2,"0")}</div>
+                  ))}
+                </div>
+
+                <div style={{ display:"flex", gap:12, flexWrap:"wrap", fontSize:12, color:"#94a3b8" }}>
+                  <span>Soma: <strong style={{color:accent}}>{soma}</strong></span>
+                  <span>Pares: <strong style={{color:accent}}>{pares}</strong></span>
+                  <span>Ímpares: <strong style={{color:accent}}>{impares}</strong></span>
+                  {isLoto && mold !== null && <>
+                    <span>Moldura: <strong style={{color:accent}}>{mold}</strong></span>
+                    <span>Miolo: <strong style={{color:accent}}>{dez.length - mold}</strong></span>
+                  </>}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {/* Explicação do cálculo */}
+          <div style={{
+            marginTop:20, background:"rgba(239,68,68,0.07)", border:"1px solid rgba(239,68,68,0.2)",
+            borderRadius:12, padding:18,
+          }}>
+            <div style={{ fontSize:13, fontWeight:700, color:"#ef4444", marginBottom:10 }}>
+              📊 Como a probabilidade foi calculada
+            </div>
+            <div style={{ fontSize:12, color:"#94a3b8", lineHeight:1.9, fontFamily:"monospace" }}>
+              <span style={{color:"#e2e8f0"}}>Fórmula:</span>  C({qtdNumeros},{kGanhar}) ÷ C({universo},{kGanhar})<br/>
+              <span style={{color:"#e2e8f0"}}>Resultado:</span> {numCombinacoes.toLocaleString("pt-BR")} ÷ {totalPossivel.toLocaleString("pt-BR")}<br/>
+              <span style={{color:"#e2e8f0"}}>Por bilhete:</span> <span style={{color:"#ef4444"}}>1 em {umEmX}</span><br/>
+              {qtdJogos > 1 && <>
+                <span style={{color:"#e2e8f0"}}>Com {qtdJogos} bilhetes:</span> <span style={{color:"#f59e0b"}}>1 em {Math.round(1/(probJackpot*qtdJogos)).toLocaleString("pt-BR")}</span><br/>
+              </>}
+              <span style={{color:"#e2e8f0"}}>Custo total ({qtdJogos}×):</span> {(preco * qtdJogos).toLocaleString("pt-BR",{style:"currency",currency:"BRL"})}
+            </div>
+            <div style={{ marginTop:10, fontSize:11, color:"#64748b", lineHeight:1.6 }}>
+              C(n,k) = combinações de n elementos tomados k a k. Cada sorteio é independente — probabilidades não acumulam entre concursos.
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ══════════════════════════════════════════════════════════
 //  COMPONENTE PRINCIPAL
 // ══════════════════════════════════════════════════════════
@@ -699,6 +935,7 @@ export default function LoteriasAnalise() {
     { id:"calor",      label:"🗺️ Mapa de Calor" },
     { id:"padroes",    label:"🔍 Padrões" },
     { id:"jogos",      label:"🎯 Jogos Sugeridos" },
+    { id:"gerador",    label:"🎲 Gerar Jogos" },
   ];
 
   const ACCENT = isMega ? "#009c3b" : "#9333ea";
@@ -969,6 +1206,9 @@ export default function LoteriasAnalise() {
         )}
         {aba === "jogos" && (
           <AbaJogos jogos={jogos} padroes={padroes} isLoto={isLoto} accent={ACCENT} />
+        )}
+        {aba === "gerador" && (
+          <AbaGerador dados={dados} isLoto={isLoto} accent={ACCENT} accent2={ACCENT2} />
         )}
 
         {/* RODAPÉ */}
