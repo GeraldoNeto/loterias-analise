@@ -734,6 +734,7 @@ export default function LoteriasAnalise() {
             fontSize:"clamp(24px,5vw,42px)", fontWeight:700, margin:"0 0 8px",
             background:`linear-gradient(135deg, ${ACCENT} 0%, ${ACCENT2} 100%)`,
             WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text",
+            display:"inline-block",
           }}>
             {isMega ? "🎰 Mega-Sena Analytics" : "🍀 Lotofácil Analytics"}
           </h1>
